@@ -8,6 +8,7 @@ import (
 )
 
 type model struct{
+	counter int
 }
 
 func (m model) Init() tea.Cmd{
@@ -21,12 +22,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd){
 		if msg.String() =="q" || msg.Type == tea.KeyCtrlC{
 			return m,tea.Quit
 		}
+
+		if msg.String() =="+" {
+			m.counter++
+			return m,nil
+		}
 	}
 	return m,nil
 }
 
 func (m model) View() string {
-	return "Welcome to Coffee!\n\nPress 'q' to quit\n"
+	
+	return fmt.Sprintf("The count is:%d\n\nPress '+' to increment.\nPress 'q' to quit.\n", m.counter)
 }
 
 func main(){
