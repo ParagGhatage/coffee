@@ -3,18 +3,26 @@ package main
 import (
 	"fmt"
 	"os"
-
 	tea "github.com/charmbracelet/bubbletea"
+	cpu "github.com/shirou/gopsutil/v4/cpu"
 )
 
+//  CPU
+// custom message to carry cpu data
+type cpuMsg [] float64
+
+
+// MODEL
 type model struct{
-	counter int
+	cpu_usage float64
 }
 
+// Init
 func (m model) Init() tea.Cmd{
 	return nil
 }
 
+// UPDATE
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd){
 
 	switch msg :=msg.(type){
@@ -23,17 +31,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd){
 			return m,tea.Quit
 		}
 
-		if msg.String() =="+" {
-			m.counter++
-			return m,nil
-		}
+		
 	}
 	return m,nil
 }
 
 func (m model) View() string {
-	
-	return fmt.Sprintf("The count is:%d\n\nPress '+' to increment.\nPress 'q' to quit.\n", m.counter)
+	percent , _ := cpu.Percent(0,false)
+	return fmt.Sprintf("The cpu USAGE is:%2f\n\nPress '+' to increment.\nPress 'q' to quit.\n",percent[0] )
 }
 
 func main(){
