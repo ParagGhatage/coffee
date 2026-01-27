@@ -4,44 +4,47 @@ import (
 	"fmt"
 	"os"
 	"time"
-	tea "github.com/charmbracelet/bubbletea"
-	cpu "github.com/shirou/gopsutil/v4/cpu"
+
 	progress_bar "github.com/charmbracelet/bubbles/progress"
+	tea "github.com/charmbracelet/bubbletea"
 	lip "github.com/charmbracelet/lipgloss"
+	cpu "github.com/shirou/gopsutil/v4/cpu"
 )
 
-//  CPU
+//	CPU
+//
 // custom message to carry cpu data
-type cpuMsg [] float64
+type cpuMsg []float64
 
-//Function to calculate cpu usage and return as a message when done
+// Function to calculate cpu usage and return as a message when done
 // 1sec  = 1000 Milliseconds
 func tickCpu() tea.Msg {
-	percent_usage , _ := cpu.Percent(650*time.Millisecond,false)
+	percent_usage, _ := cpu.Percent(650*time.Millisecond, false)
 	return cpuMsg(percent_usage)
 }
 
 // PROGRESS BAR for current CPU usage
 const (
-	padding  = 0
-	maxWidth = 250
+	
+	maxWidth = 75
 )
+
+var cpu_style = lip.NewStyle().PaddingBottom(1).PaddingTop(1).Border(lip.RoundedBorder()).PaddingLeft(1).PaddingRight(1)
+
+var cpu_text_style = lip.NewStyle().Bold(true)
 
 var helpStyle = lip.NewStyle().Foreground(lip.Color("#626262")).Render
 
-
-
-
 // MODEL
-type model struct{
+type model struct {
 	cpu_usage float64
-	
+
 	progress progress_bar.Model
 }
 
 // Init
 // tea.Cmd is just defined type for function- i.e. Init should return a fucntion that it will run at the start of TUI
-func (m model) Init() tea.Cmd{
+func (m model) Init() tea.Cmd {
 
 	return tickCpu
 }
@@ -49,7 +52,7 @@ func (m model) Init() tea.Cmd{
 // UPDATE
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
-    
+
 	case tea.KeyMsg:
 		if msg.String() == "q" || msg.Type == tea.KeyCtrlC {
 			return m, tea.Quit
@@ -60,14 +63,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.cpu_usage = msg[0]
 			// Update the progress bar to the new percentage
 			cmd := m.progress.SetPercent(m.cpu_usage / 100.0)
-			
+
 			// Batch: Run the bar animation AND the next CPU tick
 			return m, tea.Batch(tickCpu, cmd)
 		}
 		return m, tickCpu
 
 	case tea.WindowSizeMsg:
-		m.progress.Width = msg.Width - padding*2 - 4
+		m.progress.Width = msg.Width
 		if m.progress.Width > maxWidth {
 			m.progress.Width = maxWidth
 		}
@@ -82,34 +85,37 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	return m, nil
 }
+
 // VIEW
 func (m model) View() string {
-	
+
 	pad := lip.NewStyle().Padding(2).Render
-	
+
 	// rendering the progress bar view
-	return pad(fmt.Sprintf(
-		"CPU Usage: %.2f%%\n\n%s\n\nPress 'q' to quit.", 
-		m.cpu_usage, 
-		m.progress.View(), // <-- This prints the bar
-	))
+	return pad(
+        cpu_style.Render(
+            cpu_text_style.Render(
+                fmt.Sprintf("CPU Usage: %.2f%%\n\n%s\n\nPress 'q' to quit.", m.cpu_usage, m.progress.View()),
+            ),
+        ),
+    )
 }
 
 // MAIN
-func main(){
-	
-	prog := progress_bar.New(progress_bar.WithScaledGradient("#FF7CCB", "#FDFF8C"))
+func main() {
+
+	prog := progress_bar.New(progress_bar.WithScaledGradient("#FF7CCB", "#FDFF8C"),progress_bar.WithWidth(1))
 
 	intialModel := model{
 		cpu_usage: 0,
-		progress: prog,
+		progress:  prog,
 	}
 
 	p := tea.NewProgram(intialModel)
 
-	if _,err := p.Run(); err != nil {
-	fmt.Printf("There's an error: %v" ,err)
-	os.Exit(0)
+	if _, err := p.Run(); err != nil {
+		fmt.Printf("There's an error: %v", err)
+		os.Exit(0)
 
 	}
 }
