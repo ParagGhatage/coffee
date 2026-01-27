@@ -5,5 +5,5 @@
 
  ### Current implementation stage:
  
- <video src="https://github.com/ParagGhatage/coffee/blob/main/assets/videos/coffee1.mp4" controls="controls" style="max-width: 100%;">
+<video src="https://github.com/ParagGhatage/coffee/raw/main/assets/videos/coffee1.mp4" controls="controls" style="max-width: 100%;">
 </video>
