@@ -2,15 +2,17 @@ package main
 
 import (
 	"fmt"
+	"math"
 	"os"
 	"strconv"
 	"time"
-	
+
 	bar "github.com/NimbleMarkets/ntcharts/barchart"
 	progress_bar "github.com/charmbracelet/bubbles/progress"
 	tea "github.com/charmbracelet/bubbletea"
 	lip "github.com/charmbracelet/lipgloss"
 	cpu "github.com/shirou/gopsutil/v4/cpu"
+	mem "github.com/shirou/gopsutil/v4/mem"
 )
 
 //	CPU
@@ -18,6 +20,9 @@ import (
 type tickMsg struct {
     totalUsage float64
     perCoreUsage []float64
+	totalMem float64
+	usedMem float64
+	freeMem float64
 }
 
 // Function to calculate cpu usage and return as a message when done
@@ -25,6 +30,13 @@ type tickMsg struct {
 func tickCpu() tea.Msg {
 	// Get per-core usage. cpu.Percent sleeps for the duration!
 	perCore, _ := cpu.Percent(650*time.Millisecond, true)
+
+	memStats,_ := mem.VirtualMemory()
+
+	MemTotal := convertBytesToGB(memStats.Total)
+	MemUsed := convertBytesToGB(memStats.Used)
+	MemFree := convertBytesToGB(memStats.Available)
+
 
 	// Calculate total average manually to avoid sleeping twice
 	var sum float64
@@ -35,6 +47,10 @@ func tickCpu() tea.Msg {
 	return tickMsg{
 		totalUsage: avg,
 		perCoreUsage: perCore,
+
+		totalMem: MemTotal,
+		usedMem: MemUsed,
+		freeMem: MemFree,
 	}
 }
 
@@ -73,14 +89,28 @@ var cpu_text_style = lip.NewStyle().Bold(true)
 
 var helpStyle = lip.NewStyle().Foreground(lip.Color("#626262")).Render
 
+// MEMORY
+func convertBytesToGB(B uint64) float64 {
+
+	// deviding by 10^9 to convert it to GB
+	gb := float64(B)*math.Pow10((-9))
+	return(gb)
+}
+
 // MODEL
 type model struct {
 	cpu_usage float64
 	cpu_cores int
 	core_usages []float64
 	cpu_info []cpu.InfoStat
+
+	mem_total float64
+	mem_free float64
+	mem_used float64
+
 	progress progress_bar.Model
 	barchart bar.Model
+	mem_progress progress_bar.Model
 	
 }
 
@@ -104,11 +134,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.cpu_usage = msg.totalUsage
 		m.core_usages = msg.perCoreUsage
 
+		m.mem_used = msg.totalUsage
+		MemProgCmd := m.mem_progress.SetPercent(m.mem_used/m.mem_total)
+
 		ProgCmd := m.progress.SetPercent(m.cpu_usage / 100.0)
 
+
 		m.barchart = bar.New(40,10)
+
 		// rebuild this data for every tick
 		var barChartData []bar.BarData
+
 		for i,u := range m.core_usages{
 
 			// Colors based on load
@@ -138,7 +174,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// update new data in model barchart
 		m.barchart.PushAll(barChartData)
 		m.barchart.Draw()
-		return m,tea.Batch(tickCpu,ProgCmd)
+		return m,tea.Batch(tickCpu,ProgCmd,MemProgCmd)
 
 	
 
@@ -147,13 +183,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.progress.Width > maxWidth {
 			m.progress.Width = maxWidth
 		}
+		// IMPORTANT: Update the memory progress width too!
+        m.mem_progress.Width = m.progress.Width
 		return m, nil
 
 	// CRITICAL ADDITION: This allows the progress bar to animate
 	case progress_bar.FrameMsg:
-		progressModel, cmd := m.progress.Update(msg)
-		m.progress = progressModel.(progress_bar.Model)
-		return m, cmd
+		newCpuModel, cpuCmd := m.progress.Update(msg)
+        newMemModel, memCmd := m.mem_progress.Update(msg)
+
+        m.progress = newCpuModel.(progress_bar.Model)
+        m.mem_progress = newMemModel.(progress_bar.Model)
+
+        return m, tea.Batch(cpuCmd, memCmd)
 	}
 
 	return m, nil
@@ -162,30 +204,38 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // VIEW
 func (m model) View() string {
 
-	// Build Left Content (Text + Progress)
-	leftStr := lip.JoinVertical(
-		lip.Left,
-		headerStyle.Render(fmt.Sprintf("CPU LOAD (%.2f%%)", m.cpu_usage)),
-		m.progress.View(),
-		"\nPress 'q' to quit.",
-	)
+    // 1. CPU Pane
+    leftStr := lip.JoinVertical(
+        lip.Left,
+        headerStyle.Render(fmt.Sprintf("CPU (%.2f%%)", m.cpu_usage)),
+        m.progress.View(),
+    )
+    leftView := leftPaneStyle.Render(leftStr)
 
-	// Build Right Content (Header + Chart)
-	rightStr := lip.JoinVertical(
-		lip.Left,
-		headerStyle.Render("CORES (1-12)"), // Added Header Here
-		m.barchart.View(),
-	)
+    // 2. Memory Pane (Create a formatted pane for this too)
+    // We display Used / Total GB
+    memLabel := fmt.Sprintf("MEM (%.2f/%.2f GB)", m.mem_used, m.mem_total)
+    
+    midStr := lip.JoinVertical(
+        lip.Left,
+        headerStyle.Render(memLabel),
+        m.mem_progress.View(),
+    )
+    // Reuse the left style for consistency
+    midView := leftPaneStyle.Render(midStr)
 
-	//  Render Panes
-	leftView := leftPaneStyle.Render(leftStr)
-	rightView := rightPaneStyle.Render(rightStr)
+    // 3. Cores Pane
+    rightStr := lip.JoinVertical(
+        lip.Left,
+        headerStyle.Render("CPU CORES"),
+        m.barchart.View(),
+    )
+    rightView := rightPaneStyle.Render(rightStr)
 
-	// 4Join and Wrap
-	// join them horizontally, then wrap the result in the rounded border
-	joined := lip.JoinHorizontal(lip.Top, leftView, rightView)
-	
-	return wrapperStyle.Render(joined)
+    // Join all three
+    joined := lip.JoinHorizontal(lip.Top, leftView, midView, rightView)
+
+    return wrapperStyle.Render(joined)
 }
 
 // MAIN
@@ -197,11 +247,22 @@ func main() {
 
 	bc := bar.New(40, 10) 
 
+	prog_mem := progress_bar.New(progress_bar.WithScaledGradient("#c169fc", "#ff5132"),progress_bar.WithWidth(1))
+
+	m1,_ := mem.VirtualMemory() //to calculate and render a number representing total memory
+
+
 	intialModel := model{
 		cpu_usage: 0,
 		barchart: bc,
 		progress:  prog,
+		mem_progress:prog_mem,
+
+		mem_total: convertBytesToGB(m1.Total),
+		mem_used: 0,
 	}
+
+	
 	
 	p := tea.NewProgram(intialModel)
 
